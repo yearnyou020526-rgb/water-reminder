@@ -22,12 +22,11 @@
         </activity>
 
         <receiver
-            android:name=".WaterWidgetProvider"
+            android:name=".widget.WaterWidgetReceiver"
             android:exported="true"
             android:label="@string/widget_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.example.waterreminder.ACTION_ADD_QUICK" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -35,11 +34,11 @@
         </receiver>
 
         <receiver
-            android:name=".WaterReminderReceiver"
+            android:name=".reminder.NotificationActionReceiver"
             android:exported="false" />
 
         <receiver
-            android:name=".WaterBootReceiver"
+            android:name=".reminder.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
