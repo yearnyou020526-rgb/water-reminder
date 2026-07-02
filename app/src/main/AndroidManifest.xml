@@ -22,7 +22,7 @@
         </activity>
 
         <receiver
-            android:name=".widget.WaterWidgetReceiver"
+            android:name=".WaterWidgetProvider"
             android:exported="true"
             android:label="@string/widget_name">
             <intent-filter>
@@ -34,11 +34,11 @@
         </receiver>
 
         <receiver
-            android:name=".reminder.NotificationActionReceiver"
+            android:name=".WaterActionReceiver"
             android:exported="false" />
 
         <receiver
-            android:name=".reminder.BootReceiver"
+            android:name=".BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

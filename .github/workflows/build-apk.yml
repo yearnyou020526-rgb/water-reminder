@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  build-debug-apk:
-    name: Build debug APK
+  build-release-apk:
+    name: Build release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -36,16 +36,16 @@ jobs:
           gradle-version: "8.10.2"
           cache-provider: basic
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           set +e
-          gradle :app:assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
+          gradle :app:assembleRelease --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             {
               echo "### Build failed"
               echo
-              echo "下面是构建日志里最早出现的错误附近内容："
+              echo "First useful error block:"
               echo
               echo '```'
               awk '
@@ -81,9 +81,9 @@ jobs:
           path: build.log
           if-no-files-found: warn
 
-      - name: Upload debug APK
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: water-record-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: water-record-light-release-apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

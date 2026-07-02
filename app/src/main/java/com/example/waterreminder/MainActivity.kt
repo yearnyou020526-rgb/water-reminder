@@ -1,40 +1,318 @@
 package com.example.waterreminder
 
 import android.Manifest
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.TimePickerDialog
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.waterreminder.ui.WaterApp
-import com.example.waterreminder.ui.WaterViewModel
+import android.text.InputType
+import android.view.Gravity
+import android.view.View
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class MainActivity : ComponentActivity() {
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+class MainActivity : Activity() {
+    private lateinit var content: LinearLayout
+    private var currentTab = Tab.Home
+    private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
+        WaterReminderScheduler.scheduleNext(this)
+        render()
+    }
 
-        val container = AppContainer(applicationContext)
-        setContent {
-            MaterialTheme {
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    val viewModel: WaterViewModel = viewModel(
-                        factory = WaterViewModel.factory(
-                            applicationContext,
-                            container.waterRepository,
-                            container.settingsDataStore
-                        )
-                    )
-                    WaterApp(viewModel = viewModel)
+    private fun render() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(245, 250, 253))
+        }
+        root.addView(tabBar())
+        val scroll = ScrollView(this)
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(24))
+        }
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+        renderTab()
+    }
+
+    private fun tabBar(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(10), dp(10), dp(10), dp(6))
+            setBackgroundColor(Color.WHITE)
+        }
+        listOf(Tab.Home, Tab.Stats, Tab.Settings).forEach { tab ->
+            row.addView(Button(this).apply {
+                text = tab.title
+                isAllCaps = false
+                setOnClickListener {
+                    currentTab = tab
+                    renderTab()
                 }
+            }, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                setMargins(dp(4), 0, dp(4), 0)
+            })
+        }
+        return row
+    }
+
+    private fun renderTab() {
+        content.removeAllViews()
+        when (currentTab) {
+            Tab.Home -> renderHome()
+            Tab.Stats -> renderStats()
+            Tab.Settings -> renderSettings()
+        }
+    }
+
+    private fun renderHome() {
+        val settings = WaterStore.getSettings(this)
+        val total = WaterStore.todayTotal(this)
+        val progress = if (settings.dailyGoalMl <= 0) 0 else (total * 100 / settings.dailyGoalMl).coerceIn(0, 100)
+
+        content.addView(title("喝水记录"))
+        content.addView(card {
+            addView(label("今日饮水", 14, Color.rgb(80, 96, 112)))
+            addView(label("${total} / ${settings.dailyGoalMl} ml", 34, Color.rgb(8, 81, 125), true))
+            addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                this.progress = progress
+            }, LinearLayout.LayoutParams(-1, dp(14)).apply { setMargins(0, dp(12), 0, dp(6)) })
+            addView(label("完成 $progress%", 14, Color.rgb(80, 96, 112)))
+        })
+
+        content.addView(card {
+            addView(rowOfButtons(100, 200, 300))
+            addView(rowOfButtons(500, -1))
+        })
+
+        content.addView(section("今日记录"))
+        val records = WaterStore.todayRecords(this)
+        if (records.isEmpty()) {
+            content.addView(card { addView(label("今天还没有记录", 16, Color.rgb(80, 96, 112))) })
+        } else {
+            records.forEach { record ->
+                content.addView(recordRow(record))
             }
+        }
+    }
+
+    private fun rowOfButtons(vararg amounts: Int): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            amounts.forEach { amount ->
+                addView(Button(this@MainActivity).apply {
+                    text = if (amount > 0) "+${amount}ml" else "自定义"
+                    isAllCaps = false
+                    setOnClickListener {
+                        if (amount > 0) addWater(amount) else showNumberDialog("自定义饮水量", WaterStore.getSettings(this@MainActivity).defaultDrinkMl) {
+                            addWater(it)
+                        }
+                    }
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                })
+            }
+        }
+    }
+
+    private fun recordRow(record: WaterRecord): View {
+        return card {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val textBox = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label("+${record.amountMl} ml", 18, Color.rgb(30, 42, 56), true))
+                addView(label(timeFormat.format(Date(record.timestamp)), 13, Color.rgb(100, 116, 132)))
+            }
+            addView(textBox, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(Button(this@MainActivity).apply {
+                text = "删除"
+                isAllCaps = false
+                setOnClickListener {
+                    WaterStore.deleteRecord(this@MainActivity, record.id)
+                    renderTab()
+                }
+            }, LinearLayout.LayoutParams(dp(78), dp(42)))
+        }
+    }
+
+    private fun renderStats() {
+        val settings = WaterStore.getSettings(this)
+        content.addView(title("统计"))
+        content.addView(statsCard("最近 7 天", WaterStore.totalsLastDays(this, 7), settings.dailyGoalMl))
+        content.addView(statsCard("最近 30 天", WaterStore.totalsLastDays(this, 30), settings.dailyGoalMl))
+    }
+
+    private fun statsCard(title: String, points: List<DayTotal>, goal: Int): View {
+        return card {
+            addView(section(title))
+            val average = if (points.isEmpty()) 0 else points.sumOf { it.totalMl } / points.size
+            val reached = points.count { it.totalMl >= goal }
+            addView(label("平均每日饮水量：${average} ml", 15, Color.rgb(50, 64, 78)))
+            addView(label("达标天数：${reached} 天", 15, Color.rgb(50, 64, 78)))
+            addView(label("达标率：${WaterStore.reachedRate(points, goal)}%", 15, Color.rgb(50, 64, 78)))
+            points.forEach { point ->
+                val progress = if (goal <= 0) 0 else (point.totalMl * 100 / goal).coerceIn(0, 100)
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(label(WaterStore.shortDate(point.date), 12, Color.rgb(80, 96, 112)), LinearLayout.LayoutParams(dp(48), -2))
+                    addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = 100
+                        this.progress = progress
+                    }, LinearLayout.LayoutParams(0, dp(10), 1f).apply { setMargins(dp(6), 0, dp(6), 0) })
+                    addView(label("${point.totalMl}ml", 12, Color.rgb(80, 96, 112)), LinearLayout.LayoutParams(dp(70), -2))
+                }
+                addView(row, LinearLayout.LayoutParams(-1, dp(28)))
+            }
+        }
+    }
+
+    private fun renderSettings() {
+        val settings = WaterStore.getSettings(this)
+        content.addView(title("设置"))
+        content.addView(card {
+            addView(settingRow("每日目标", "${settings.dailyGoalMl} ml") {
+                showNumberDialog("每日目标", settings.dailyGoalMl) { saveSettings(settings.copy(dailyGoalMl = it)) }
+            })
+            addView(settingRow("默认饮水量", "${settings.defaultDrinkMl} ml") {
+                showNumberDialog("默认饮水量", settings.defaultDrinkMl) { saveSettings(settings.copy(defaultDrinkMl = it)) }
+            })
+            addView(label("小组件右侧按钮会使用默认饮水量。", 13, Color.rgb(96, 108, 120)))
+            addView(section("提醒间隔"))
+            listOf(15, 30, 45, 60, 90, 120).chunked(3).forEach { row ->
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    row.forEach { minutes ->
+                        addView(Button(this@MainActivity).apply {
+                            text = "${minutes}分钟"
+                            isAllCaps = false
+                            isSelected = settings.reminderIntervalMinutes == minutes
+                            setOnClickListener { saveSettings(settings.copy(reminderIntervalMinutes = minutes)) }
+                        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                            setMargins(dp(4), dp(4), dp(4), dp(4))
+                        })
+                    }
+                })
+            }
+            addView(settingRow("提醒开始", "%02d:%02d".format(settings.reminderStartHour, settings.reminderStartMinute)) {
+                showTimeDialog(settings.reminderStartHour, settings.reminderStartMinute) { hour, minute ->
+                    saveSettings(settings.copy(reminderStartHour = hour, reminderStartMinute = minute))
+                }
+            })
+            addView(settingRow("提醒结束", "%02d:%02d".format(settings.reminderEndHour, settings.reminderEndMinute)) {
+                showTimeDialog(settings.reminderEndHour, settings.reminderEndMinute) { hour, minute ->
+                    saveSettings(settings.copy(reminderEndHour = hour, reminderEndMinute = minute))
+                }
+            })
+            val switchRow = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(label("通知提醒", 16, Color.rgb(35, 47, 60), true), LinearLayout.LayoutParams(0, -2, 1f))
+                addView(Switch(this@MainActivity).apply {
+                    isChecked = settings.reminderEnabled
+                    setOnCheckedChangeListener { _, checked ->
+                        saveSettings(settings.copy(reminderEnabled = checked))
+                        if (!checked) WaterReminderScheduler.cancelAll(this@MainActivity)
+                    }
+                })
+            }
+            addView(switchRow)
+        })
+    }
+
+    private fun settingRow(name: String, value: String, onClick: () -> Unit): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(5), 0, dp(5))
+            val box = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label(name, 15, Color.rgb(35, 47, 60), true))
+                addView(label(value, 14, Color.rgb(100, 116, 132)))
+            }
+            addView(box, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(Button(this@MainActivity).apply {
+                text = "修改"
+                isAllCaps = false
+                setOnClickListener { onClick() }
+            }, LinearLayout.LayoutParams(dp(82), dp(42)))
+        }
+    }
+
+    private fun addWater(amountMl: Int) {
+        WaterStore.addWater(this, amountMl)
+        renderTab()
+    }
+
+    private fun saveSettings(settings: WaterSettings) {
+        WaterStore.updateSettings(this, settings)
+        renderTab()
+    }
+
+    private fun showNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(initialValue.toString())
+            selectAll()
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton("保存") { _, _ -> input.text.toString().toIntOrNull()?.let(onConfirm) }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showTimeDialog(hour: Int, minute: Int, onConfirm: (Int, Int) -> Unit) {
+        TimePickerDialog(this, { _, h, m -> onConfirm(h, m) }, hour, minute, true).show()
+    }
+
+    private fun card(build: LinearLayout.() -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setBackgroundColor(Color.WHITE)
+            build()
+        }.also {
+            it.layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
+                setMargins(0, dp(8), 0, dp(8))
+            }
+        }
+    }
+
+    private fun title(text: String): TextView = label(text, 26, Color.rgb(20, 35, 50), true).apply {
+        setPadding(0, dp(4), 0, dp(8))
+    }
+
+    private fun section(text: String): TextView = label(text, 18, Color.rgb(35, 47, 60), true).apply {
+        setPadding(0, dp(8), 0, dp(6))
+    }
+
+    private fun label(text: String, sp: Int, color: Int, bold: Boolean = false): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = sp.toFloat()
+            setTextColor(color)
+            if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = true
         }
     }
 
@@ -42,7 +320,15 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private enum class Tab(val title: String) {
+        Home("首页"),
+        Stats("统计"),
+        Settings("设置")
     }
 }
