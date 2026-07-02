@@ -359,6 +359,11 @@ fun SettingsScreen(
                 SettingRow("默认饮水量", "${settings.defaultDrinkMl} ml") {
                     numberDialog = NumberDialogConfig("默认饮水量", settings.defaultDrinkMl, onDefaultDrinkChange)
                 }
+                Text(
+                    text = "通知快捷操作和桌面小组件按钮会使用这个数值。",
+                    color = Color(0xFF667085),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Text("提醒间隔", fontWeight = FontWeight.SemiBold)
                 listOf(listOf(15, 30, 45), listOf(60, 90, 120)).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

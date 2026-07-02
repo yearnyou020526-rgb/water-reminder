@@ -17,7 +17,7 @@ class SettingsDataStore(
     val settingsFlow: Flow<WaterSettings> = context.waterSettingsDataStore.data.map { prefs ->
         WaterSettings(
             dailyGoalMl = prefs[Keys.dailyGoalMl] ?: 2000,
-            defaultDrinkMl = prefs[Keys.defaultDrinkMl] ?: 200,
+            defaultDrinkMl = prefs[Keys.defaultDrinkMl] ?: 500,
             reminderIntervalMinutes = prefs[Keys.reminderIntervalMinutes] ?: 60,
             reminderStartHour = prefs[Keys.reminderStartHour] ?: 8,
             reminderStartMinute = prefs[Keys.reminderStartMinute] ?: 0,

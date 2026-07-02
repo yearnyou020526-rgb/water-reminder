@@ -2,7 +2,7 @@ package com.example.waterreminder.settings
 
 data class WaterSettings(
     val dailyGoalMl: Int = 2000,
-    val defaultDrinkMl: Int = 200,
+    val defaultDrinkMl: Int = 500,
     val reminderIntervalMinutes: Int = 60,
     val reminderStartHour: Int = 8,
     val reminderStartMinute: Int = 0,
