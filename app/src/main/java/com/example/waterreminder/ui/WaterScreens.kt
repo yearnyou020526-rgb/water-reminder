@@ -186,7 +186,7 @@ private fun SummaryCard(state: WaterUiState) {
             )
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
-                progress = { state.progress },
+                progress = state.progress,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(10.dp),
@@ -490,7 +490,7 @@ fun NumberInputDialog(
                 value = value,
                 onValueChange = { value = it.filter(Char::isDigit).take(5) },
                 singleLine = true,
-                suffix = { Text(suffix) },
+                label = { Text(suffix) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
         },
