@@ -109,7 +109,7 @@ class MainActivity : Activity() {
         content.addView(card {
             addView(rowOfButtons(100, 200, 300))
             addView(rowOfButtons(500, -1))
-            addView(Button(this).apply {
+            addView(Button(this@MainActivity).apply {
                 text = "撤销上一次"
                 isAllCaps = false
                 setOnClickListener {
