@@ -19,6 +19,7 @@ object WaterActions {
     const val ACTION_ADD_DEFAULT = "com.example.waterreminder.ACTION_ADD_DEFAULT"
     const val ACTION_SNOOZE = "com.example.waterreminder.ACTION_SNOOZE"
     const val ACTION_MUTE_TODAY = "com.example.waterreminder.ACTION_MUTE_TODAY"
+    const val ACTION_MIDNIGHT_REFRESH = "com.example.waterreminder.ACTION_MIDNIGHT_REFRESH"
     const val ACTION_BOOT = "com.example.waterreminder.ACTION_BOOT"
 }
 
@@ -27,12 +28,23 @@ object WaterReminderScheduler {
     private const val NOTIFICATION_ID = 20000
     private const val REQUEST_REMINDER = 4100
     private const val REQUEST_SNOOZE = 4101
+    private const val REQUEST_MIDNIGHT = 4102
 
     fun scheduleNext(context: Context) {
         val settings = WaterStore.getSettings(context)
         cancel(context, REQUEST_REMINDER, WaterActions.ACTION_REMINDER)
-        if (!settings.reminderEnabled || settings.mutedDate == WaterStore.todayDate()) return
+        if (!settings.reminderEnabled ||
+            settings.mutedDate == WaterStore.todayDate() ||
+            WaterStore.isGoalReached(context)
+        ) {
+            return
+        }
         scheduleAt(context, WaterActions.ACTION_REMINDER, REQUEST_REMINDER, nextTriggerMillis(settings))
+    }
+
+    fun scheduleMidnightRefresh(context: Context) {
+        cancel(context, REQUEST_MIDNIGHT, WaterActions.ACTION_MIDNIGHT_REFRESH)
+        scheduleAt(context, WaterActions.ACTION_MIDNIGHT_REFRESH, REQUEST_MIDNIGHT, nextMidnightMillis())
     }
 
     fun scheduleSnooze(context: Context) {
@@ -49,13 +61,20 @@ object WaterReminderScheduler {
         cancel(context, REQUEST_SNOOZE, WaterActions.ACTION_REMINDER)
     }
 
+    fun cancelReminderOnly(context: Context) {
+        cancel(context, REQUEST_REMINDER, WaterActions.ACTION_REMINDER)
+        cancel(context, REQUEST_SNOOZE, WaterActions.ACTION_REMINDER)
+    }
+
     fun showReminder(context: Context) {
         val settings = WaterStore.getSettings(context)
         if (!settings.reminderEnabled ||
             settings.mutedDate == WaterStore.todayDate() ||
+            WaterStore.isGoalReached(context) ||
             !isInsideReminderWindow(settings) ||
             !canPostNotifications(context)
         ) {
+            if (WaterStore.isGoalReached(context)) WaterStore.muteIfGoalReached(context)
             scheduleNext(context)
             return
         }
@@ -119,6 +138,16 @@ object WaterReminderScheduler {
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
             if (timeInMillis <= now.timeInMillis) add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+    }
+
+    private fun nextMidnightMillis(): Long {
+        return Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 5)
+            set(Calendar.MILLISECOND, 0)
         }.timeInMillis
     }
 
@@ -189,6 +218,11 @@ class WaterActionReceiver : BroadcastReceiver() {
                 WaterReminderScheduler.cancelAll(context)
                 context.getSystemService(NotificationManager::class.java).cancel(20000)
             }
+            WaterActions.ACTION_MIDNIGHT_REFRESH -> {
+                WaterWidgetProvider.updateAll(context)
+                WaterReminderScheduler.scheduleNext(context)
+                WaterReminderScheduler.scheduleMidnightRefresh(context)
+            }
         }
     }
 }
@@ -196,6 +230,7 @@ class WaterActionReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         WaterReminderScheduler.scheduleNext(context)
+        WaterReminderScheduler.scheduleMidnightRefresh(context)
         WaterWidgetProvider.updateAll(context)
     }
 }

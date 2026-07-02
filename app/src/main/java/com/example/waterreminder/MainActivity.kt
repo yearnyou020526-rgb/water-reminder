@@ -31,7 +31,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
         WaterReminderScheduler.scheduleNext(this)
+        WaterReminderScheduler.scheduleMidnightRefresh(this)
         render()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::content.isInitialized) renderTab()
     }
 
     private fun render() {
@@ -95,11 +101,24 @@ class MainActivity : Activity() {
                 this.progress = progress
             }, LinearLayout.LayoutParams(-1, dp(14)).apply { setMargins(0, dp(12), 0, dp(6)) })
             addView(label("完成 $progress%", 14, Color.rgb(80, 96, 112)))
+            if (progress >= 100) {
+                addView(label("已达标，今天不再发送提醒", 15, Color.rgb(20, 128, 88), true))
+            }
         })
 
         content.addView(card {
             addView(rowOfButtons(100, 200, 300))
             addView(rowOfButtons(500, -1))
+            addView(Button(this).apply {
+                text = "撤销上一次"
+                isAllCaps = false
+                setOnClickListener {
+                    WaterStore.undoLastTodayRecord(this@MainActivity)
+                    renderTab()
+                }
+            }, LinearLayout.LayoutParams(-1, dp(44)).apply {
+                setMargins(dp(4), dp(6), dp(4), 0)
+            })
         })
 
         content.addView(section("今日记录"))
@@ -165,9 +184,15 @@ class MainActivity : Activity() {
             addView(section(title))
             val average = if (points.isEmpty()) 0 else points.sumOf { it.totalMl } / points.size
             val reached = points.count { it.totalMl >= goal }
+            val best = WaterStore.bestDay(points)
+            val streak = WaterStore.reachedStreak(points, goal)
             addView(label("平均每日饮水量：${average} ml", 15, Color.rgb(50, 64, 78)))
             addView(label("达标天数：${reached} 天", 15, Color.rgb(50, 64, 78)))
             addView(label("达标率：${WaterStore.reachedRate(points, goal)}%", 15, Color.rgb(50, 64, 78)))
+            if (best != null) {
+                addView(label("最高一天：${WaterStore.shortDate(best.date)} ${best.totalMl}ml", 15, Color.rgb(50, 64, 78)))
+            }
+            addView(label("连续达标：${streak} 天", 15, Color.rgb(50, 64, 78)))
             points.forEach { point ->
                 val progress = if (goal <= 0) 0 else (point.totalMl * 100 / goal).coerceIn(0, 100)
                 val row = LinearLayout(this@MainActivity).apply {
@@ -235,7 +260,27 @@ class MainActivity : Activity() {
                 })
             }
             addView(switchRow)
+            addView(label("达到每日目标后，系统会自动停止当天提醒。", 13, Color.rgb(96, 108, 120)))
+            addView(switchRow("小组件大字体", settings.widgetLargeText) { checked ->
+                saveSettings(settings.copy(widgetLargeText = checked))
+            })
+            addView(switchRow("小组件显示水杯", settings.widgetShowCup) { checked ->
+                saveSettings(settings.copy(widgetShowCup = checked))
+            })
         })
+    }
+
+    private fun switchRow(name: String, checked: Boolean, onChecked: (Boolean) -> Unit): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(5), 0, dp(5))
+            addView(label(name, 16, Color.rgb(35, 47, 60), true), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(Switch(this@MainActivity).apply {
+                isChecked = checked
+                setOnCheckedChangeListener { _, value -> onChecked(value) }
+            })
+        }
     }
 
     private fun settingRow(name: String, value: String, onClick: () -> Unit): View {

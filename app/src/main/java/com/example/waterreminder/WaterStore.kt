@@ -25,7 +25,9 @@ data class WaterSettings(
     val reminderEndHour: Int = 23,
     val reminderEndMinute: Int = 0,
     val reminderEnabled: Boolean = true,
-    val mutedDate: String = ""
+    val mutedDate: String = "",
+    val widgetLargeText: Boolean = true,
+    val widgetShowCup: Boolean = true
 )
 
 data class DayTotal(val date: String, val totalMl: Int)
@@ -43,6 +45,8 @@ object WaterStore {
     private const val KEY_END_MINUTE = "end_minute"
     private const val KEY_REMINDER_ENABLED = "reminder_enabled"
     private const val KEY_MUTED_DATE = "muted_date"
+    private const val KEY_WIDGET_LARGE_TEXT = "widget_large_text"
+    private const val KEY_WIDGET_SHOW_CUP = "widget_show_cup"
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private val shortDateFormat = SimpleDateFormat("MM-dd", Locale.getDefault())
 
@@ -63,7 +67,9 @@ object WaterStore {
             reminderEndHour = prefs.getInt(KEY_END_HOUR, 23),
             reminderEndMinute = prefs.getInt(KEY_END_MINUTE, 0),
             reminderEnabled = prefs.getBoolean(KEY_REMINDER_ENABLED, true),
-            mutedDate = prefs.getString(KEY_MUTED_DATE, "") ?: ""
+            mutedDate = prefs.getString(KEY_MUTED_DATE, "") ?: "",
+            widgetLargeText = prefs.getBoolean(KEY_WIDGET_LARGE_TEXT, true),
+            widgetShowCup = prefs.getBoolean(KEY_WIDGET_SHOW_CUP, true)
         )
     }
 
@@ -78,8 +84,11 @@ object WaterStore {
             .putInt(KEY_END_MINUTE, update.reminderEndMinute.coerceIn(0, 59))
             .putBoolean(KEY_REMINDER_ENABLED, update.reminderEnabled)
             .putString(KEY_MUTED_DATE, update.mutedDate)
+            .putBoolean(KEY_WIDGET_LARGE_TEXT, update.widgetLargeText)
+            .putBoolean(KEY_WIDGET_SHOW_CUP, update.widgetShowCup)
             .apply()
         WaterReminderScheduler.scheduleNext(context)
+        WaterReminderScheduler.scheduleMidnightRefresh(context)
         WaterWidgetProvider.updateAll(context)
     }
 
@@ -103,12 +112,19 @@ object WaterStore {
         )
         saveRecords(context, records)
         prefs.edit().putLong(KEY_NEXT_ID, id + 1).apply()
+        muteIfGoalReached(context)
         WaterWidgetProvider.updateAll(context)
     }
 
     fun deleteRecord(context: Context, id: Long) {
         saveRecords(context, getRecords(context).filterNot { it.id == id })
         WaterWidgetProvider.updateAll(context)
+    }
+
+    fun undoLastTodayRecord(context: Context): Boolean {
+        val last = todayRecords(context).maxByOrNull { it.timestamp } ?: return false
+        deleteRecord(context, last.id)
+        return true
     }
 
     fun getRecords(context: Context): List<WaterRecord> {
@@ -148,6 +164,31 @@ object WaterStore {
     fun reachedRate(points: List<DayTotal>, goalMl: Int): Int {
         if (points.isEmpty()) return 0
         return (points.count { it.totalMl >= goalMl } * 100f / points.size).roundToInt()
+    }
+
+    fun bestDay(points: List<DayTotal>): DayTotal? = points.maxByOrNull { it.totalMl }
+
+    fun reachedStreak(points: List<DayTotal>, goalMl: Int): Int {
+        var streak = 0
+        for (point in points.asReversed()) {
+            if (point.totalMl >= goalMl) streak++ else break
+        }
+        return streak
+    }
+
+    fun isGoalReached(context: Context): Boolean {
+        val goal = getSettings(context).dailyGoalMl
+        return goal > 0 && todayTotal(context) >= goal
+    }
+
+    fun muteIfGoalReached(context: Context) {
+        if (!isGoalReached(context)) return
+        val settings = getSettings(context)
+        if (settings.mutedDate != todayDate()) {
+            updateSettings(context, settings.copy(mutedDate = todayDate()))
+        } else {
+            WaterReminderScheduler.cancelReminderOnly(context)
+        }
     }
 
     private fun saveRecords(context: Context, records: List<WaterRecord>) {
