@@ -10,10 +10,10 @@ import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.action.ActionParameters
-import androidx.glance.action.actionRunCallback
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
@@ -22,7 +22,6 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -95,11 +94,11 @@ private fun WidgetContent(totalMl: Int, goalMl: Int, quickAmountMl: Int, progres
         Image(
             provider = ImageProvider(R.drawable.ic_widget_cup),
             contentDescription = "水杯",
-            modifier = GlanceModifier.size(72.dp)
+            modifier = GlanceModifier.size(62.dp)
         )
-        Spacer(modifier = GlanceModifier.width(16.dp))
+        Spacer(modifier = GlanceModifier.width(12.dp))
         Column(
-            modifier = GlanceModifier.defaultWeight(),
+            modifier = GlanceModifier.width(146.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -134,10 +133,10 @@ private fun WidgetContent(totalMl: Int, goalMl: Int, quickAmountMl: Int, progres
                 ) {}
             }
         }
-        Spacer(modifier = GlanceModifier.width(20.dp))
+        Spacer(modifier = GlanceModifier.width(12.dp))
         Box(
             modifier = GlanceModifier
-                .width(132.dp)
+                .width(116.dp)
                 .height(54.dp)
                 .background(ColorProvider(Color(0x11FFFFFF))),
             contentAlignment = Alignment.Center
