@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-debug-apk:
@@ -80,42 +80,6 @@ jobs:
           name: build-log
           path: build.log
           if-no-files-found: warn
-
-      - name: Commit build error summary
-        if: failure()
-        run: |
-          mkdir -p ci
-          {
-            echo "Build failed for $GITHUB_SHA"
-            echo
-            echo "First useful error block:"
-            echo
-            awk '
-              /(^e: |^ERROR:|^FAILURE:|Execution failed|Could not |Type mismatch|Unresolved reference|No value passed|Cannot access|error:)/ {
-                if (!found) {
-                  start = NR - 8
-                  if (start < 1) start = 1
-                  end = NR + 90
-                  found = 1
-                }
-              }
-              { lines[NR] = $0 }
-              END {
-                if (found) {
-                  for (i = start; i <= end && i <= NR; i++) print lines[i]
-                } else {
-                  start = NR - 120
-                  if (start < 1) start = 1
-                  for (i = start; i <= NR; i++) print lines[i]
-                }
-              }
-            ' build.log | head -140
-          } > ci/latest-build-error.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ci/latest-build-error.txt
-          git commit -m "Record latest build error [skip ci]" || exit 0
-          git push
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
