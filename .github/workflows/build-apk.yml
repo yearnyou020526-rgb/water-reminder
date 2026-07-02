@@ -37,7 +37,49 @@ jobs:
           cache-provider: basic
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle :app:assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Build failed"
+              echo
+              echo "下面是构建日志里最早出现的错误附近内容："
+              echo
+              echo '```'
+              awk '
+                /(^e: |^ERROR:|^FAILURE:|Execution failed|Could not |Type mismatch|Unresolved reference|No value passed|Cannot access|error:)/ {
+                  if (!found) {
+                    start = NR - 8
+                    if (start < 1) start = 1
+                    end = NR + 90
+                    found = 1
+                  }
+                }
+                { lines[NR] = $0 }
+                END {
+                  if (found) {
+                    for (i = start; i <= end && i <= NR; i++) print lines[i]
+                  } else {
+                    start = NR - 120
+                    if (start < 1) start = 1
+                    for (i = start; i <= NR; i++) print lines[i]
+                  }
+                }
+              ' build.log | head -140
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
