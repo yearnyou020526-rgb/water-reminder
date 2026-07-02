@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.example.waterreminder.ui
 
 import androidx.compose.foundation.background
@@ -26,7 +28,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,7 +61,6 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 fun WaterApp(viewModel: WaterViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(AppTab.Home) }
@@ -269,7 +269,6 @@ private fun RecordRow(record: WaterRecord, onDelete: () -> Unit) {
 }
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 fun StatisticsScreen(state: WaterUiState) {
     var range by rememberSaveable { mutableStateOf(7) }
     val points = if (range == 7) state.trend7 else state.trend30
@@ -333,7 +332,6 @@ private fun TrendRow(point: TrendPoint, goalMl: Int) {
 }
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 fun SettingsScreen(
     state: WaterUiState,
     onGoalChange: (Int) -> Unit,
