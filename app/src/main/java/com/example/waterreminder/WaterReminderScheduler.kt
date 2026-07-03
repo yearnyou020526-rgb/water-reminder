@@ -78,6 +78,10 @@ object WaterReminderScheduler {
             scheduleNext(context)
             return
         }
+        if (WaterStore.wasWaterAddedRecently(context, 30)) {
+            scheduleNext(context)
+            return
+        }
 
         createChannel(context)
         val notification = Notification.Builder(context, CHANNEL_ID)

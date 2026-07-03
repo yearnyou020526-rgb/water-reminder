@@ -29,8 +29,16 @@ class WaterWidgetProvider : AppWidgetProvider() {
             val goal = WaterStore.todayGoal(context)
             val progress = if (goal <= 0) 0 else (total * 100 / goal).coerceIn(0, 100)
             val reached = progress >= 100
+            val overGoal = WaterStore.overGoalMl(context)
             val views = RemoteViews(context.packageName, R.layout.widget_water).apply {
-                setTextViewText(R.id.widget_title, if (reached) "今日已达标" else "今天喝水目标")
+                setTextViewText(
+                    R.id.widget_title,
+                    when {
+                        overGoal > 0 -> "已超出 ${overGoal}ml"
+                        reached -> "今日已达标"
+                        else -> "今天喝水目标"
+                    }
+                )
                 setTextViewText(R.id.widget_amount, "${total}/${goal}ml")
                 setTextViewText(R.id.widget_add_button, "+${settings.defaultDrinkMl}ml")
                 setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, if (settings.widgetLargeText) 13f else 11f)

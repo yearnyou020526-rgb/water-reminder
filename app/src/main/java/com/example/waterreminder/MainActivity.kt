@@ -92,6 +92,9 @@ class MainActivity : Activity() {
         val total = WaterStore.todayTotal(this)
         val goal = WaterStore.todayGoal(this)
         val progress = if (goal <= 0) 0 else (total * 100 / goal).coerceIn(0, 100)
+        val overGoal = WaterStore.overGoalMl(this)
+        val completionTime = WaterStore.completionTimestampToday(this)
+        val paceHint = WaterStore.paceHint(this)
 
         content.addView(title("喝水记录"))
         content.addView(card {
@@ -102,8 +105,16 @@ class MainActivity : Activity() {
                 this.progress = progress
             }, LinearLayout.LayoutParams(-1, dp(14)).apply { setMargins(0, dp(12), 0, dp(6)) })
             addView(label("完成 $progress%", 14, Color.rgb(80, 96, 112)))
-            if (progress >= 100) {
+            if (completionTime != null) {
+                addView(label("今天 ${timeFormat.format(Date(completionTime))} 达成目标", 15, Color.rgb(20, 128, 88), true))
+            }
+            if (overGoal > 0) {
+                addView(label("已超出目标 ${overGoal} ml，多喝的水已继续记录", 15, Color.rgb(20, 128, 88), true))
+            } else if (progress >= 100) {
                 addView(label("已达标，今天不再发送提醒", 15, Color.rgb(20, 128, 88), true))
+            } else if (paceHint.isNotBlank()) {
+                val color = if (paceHint.contains("偏慢")) Color.rgb(190, 90, 45) else Color.rgb(64, 118, 96)
+                addView(label(paceHint, 15, color, true))
             }
         })
 

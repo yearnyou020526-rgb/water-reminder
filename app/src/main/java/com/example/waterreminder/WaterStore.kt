@@ -169,6 +169,65 @@ object WaterStore {
 
     fun todayGoal(context: Context): Int = goalForDate(getSettings(context), todayDate())
 
+    fun overGoalMl(context: Context): Int {
+        return (todayTotal(context) - todayGoal(context)).coerceAtLeast(0)
+    }
+
+    fun lastDrinkTimestamp(context: Context): Long? {
+        return todayRecords(context).maxByOrNull { it.timestamp }?.timestamp
+    }
+
+    fun wasWaterAddedRecently(context: Context, minutes: Int): Boolean {
+        val last = lastDrinkTimestamp(context) ?: return false
+        return System.currentTimeMillis() - last < minutes.coerceAtLeast(1) * 60 * 1000L
+    }
+
+    fun completionTimestampToday(context: Context): Long? {
+        val goal = todayGoal(context)
+        if (goal <= 0) return null
+        var total = 0
+        todayRecords(context).sortedBy { it.timestamp }.forEach { record ->
+            total += record.amountMl
+            if (total >= goal) return record.timestamp
+        }
+        return null
+    }
+
+    fun paceHint(context: Context): String {
+        val settings = getSettings(context)
+        val goal = todayGoal(context)
+        val total = todayTotal(context)
+        if (goal <= 0) return ""
+        if (total >= goal) {
+            val over = (total - goal).coerceAtLeast(0)
+            return if (over > 0) "已达标，并超出目标 ${over} ml" else "已达标，今天不再发送提醒"
+        }
+
+        val start = settings.reminderStartHour * 60 + settings.reminderStartMinute
+        val end = settings.reminderEndHour * 60 + settings.reminderEndMinute
+        val now = Calendar.getInstance()
+        val current = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        val span = reminderWindowLength(start, end)
+        val elapsed = elapsedReminderMinutes(start, end, current)
+
+        if (elapsed == null) {
+            val remaining = goal - total
+            return if (currentBeforeWindow(start, end, current)) {
+                "还没到提醒时间，今天还差 ${remaining} ml"
+            } else {
+                "今天进度偏慢，还差 ${remaining} ml 达标"
+            }
+        }
+
+        val expected = (goal * elapsed / span.toFloat()).roundToInt()
+        val deficit = expected - total
+        return if (deficit >= 200) {
+            "当前进度偏慢，建议补充 ${deficit} ml"
+        } else {
+            "当前进度正常，继续保持"
+        }
+    }
+
     fun goalForDate(settings: WaterSettings, date: String): Int {
         val index = weekdayIndex(date)
         return settings.weekdayGoalsMl.getOrNull(index) ?: settings.dailyGoalMl
@@ -268,6 +327,27 @@ object WaterStore {
 
     private fun weekdayIndex(calendar: Calendar): Int {
         return (calendar.get(Calendar.DAY_OF_WEEK) + 5) % 7
+    }
+
+    private fun reminderWindowLength(start: Int, end: Int): Int {
+        val raw = if (start <= end) end - start else 24 * 60 - start + end
+        return raw.coerceAtLeast(1)
+    }
+
+    private fun elapsedReminderMinutes(start: Int, end: Int, current: Int): Int? {
+        return if (start <= end) {
+            if (current in start..end) current - start else null
+        } else {
+            when {
+                current >= start -> current - start
+                current <= end -> 24 * 60 - start + current
+                else -> null
+            }
+        }
+    }
+
+    private fun currentBeforeWindow(start: Int, end: Int, current: Int): Boolean {
+        return if (start <= end) current < start else current > end && current < start
     }
 
     private fun cleanupOldDetails(context: Context, records: MutableList<WaterRecord>) {
