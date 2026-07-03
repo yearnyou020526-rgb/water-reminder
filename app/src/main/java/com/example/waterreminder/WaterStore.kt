@@ -18,7 +18,9 @@ data class WaterRecord(
 
 data class WaterSettings(
     val dailyGoalMl: Int = 2000,
+    val weekdayGoalsMl: List<Int> = List(7) { 2000 },
     val defaultDrinkMl: Int = 500,
+    val quickAmountsMl: List<Int> = listOf(100, 200, 300, 500),
     val reminderIntervalMinutes: Int = 60,
     val reminderStartHour: Int = 8,
     val reminderStartMinute: Int = 0,
@@ -37,7 +39,9 @@ object WaterStore {
     private const val KEY_RECORDS = "records"
     private const val KEY_NEXT_ID = "next_id"
     private const val KEY_GOAL = "daily_goal_ml"
+    private const val KEY_WEEKDAY_GOAL_PREFIX = "weekday_goal_"
     private const val KEY_DEFAULT = "default_drink_ml"
+    private const val KEY_QUICK_PREFIX = "quick_amount_"
     private const val KEY_INTERVAL = "reminder_interval"
     private const val KEY_START_HOUR = "start_hour"
     private const val KEY_START_MINUTE = "start_minute"
@@ -58,9 +62,16 @@ object WaterStore {
 
     fun getSettings(context: Context): WaterSettings {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val defaultGoal = prefs.getInt(KEY_GOAL, 2000)
         return WaterSettings(
-            dailyGoalMl = prefs.getInt(KEY_GOAL, 2000),
+            dailyGoalMl = defaultGoal,
+            weekdayGoalsMl = (0..6).map { index ->
+                prefs.getInt("$KEY_WEEKDAY_GOAL_PREFIX$index", defaultGoal)
+            },
             defaultDrinkMl = prefs.getInt(KEY_DEFAULT, 500),
+            quickAmountsMl = (0..3).map { index ->
+                prefs.getInt("$KEY_QUICK_PREFIX$index", listOf(100, 200, 300, 500)[index])
+            },
             reminderIntervalMinutes = prefs.getInt(KEY_INTERVAL, 60),
             reminderStartHour = prefs.getInt(KEY_START_HOUR, 8),
             reminderStartMinute = prefs.getInt(KEY_START_MINUTE, 0),
@@ -74,7 +85,7 @@ object WaterStore {
     }
 
     fun updateSettings(context: Context, update: WaterSettings) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putInt(KEY_GOAL, update.dailyGoalMl.coerceIn(100, 10000))
             .putInt(KEY_DEFAULT, update.defaultDrinkMl.coerceIn(10, 5000))
             .putInt(KEY_INTERVAL, update.reminderIntervalMinutes)
@@ -86,7 +97,13 @@ object WaterStore {
             .putString(KEY_MUTED_DATE, update.mutedDate)
             .putBoolean(KEY_WIDGET_LARGE_TEXT, update.widgetLargeText)
             .putBoolean(KEY_WIDGET_SHOW_CUP, update.widgetShowCup)
-            .apply()
+        update.weekdayGoalsMl.take(7).forEachIndexed { index, goal ->
+            editor.putInt("$KEY_WEEKDAY_GOAL_PREFIX$index", goal.coerceIn(100, 10000))
+        }
+        update.quickAmountsMl.take(4).forEachIndexed { index, amount ->
+            editor.putInt("$KEY_QUICK_PREFIX$index", amount.coerceIn(10, 5000))
+        }
+        editor.apply()
         WaterReminderScheduler.scheduleNext(context)
         WaterReminderScheduler.scheduleMidnightRefresh(context)
         WaterWidgetProvider.updateAll(context)
@@ -110,6 +127,7 @@ object WaterStore {
                 date = dateFormat.format(Date(now))
             )
         )
+        cleanupOldDetails(context, records)
         saveRecords(context, records)
         prefs.edit().putLong(KEY_NEXT_ID, id + 1).apply()
         muteIfGoalReached(context)
@@ -149,6 +167,13 @@ object WaterStore {
 
     fun todayTotal(context: Context): Int = todayRecords(context).sumOf { it.amountMl }
 
+    fun todayGoal(context: Context): Int = goalForDate(getSettings(context), todayDate())
+
+    fun goalForDate(settings: WaterSettings, date: String): Int {
+        val index = weekdayIndex(date)
+        return settings.weekdayGoalsMl.getOrNull(index) ?: settings.dailyGoalMl
+    }
+
     fun totalsLastDays(context: Context, days: Int): List<DayTotal> {
         val recordsByDate = getRecords(context).groupBy { it.date }
         val calendar = Calendar.getInstance()
@@ -161,23 +186,52 @@ object WaterStore {
         }
     }
 
-    fun reachedRate(points: List<DayTotal>, goalMl: Int): Int {
+    fun reachedRate(points: List<DayTotal>, settings: WaterSettings): Int {
         if (points.isEmpty()) return 0
-        return (points.count { it.totalMl >= goalMl } * 100f / points.size).roundToInt()
+        return (points.count { it.totalMl >= goalForDate(settings, it.date) } * 100f / points.size).roundToInt()
     }
 
     fun bestDay(points: List<DayTotal>): DayTotal? = points.maxByOrNull { it.totalMl }
 
-    fun reachedStreak(points: List<DayTotal>, goalMl: Int): Int {
+    fun reachedStreak(points: List<DayTotal>, settings: WaterSettings): Int {
         var streak = 0
         for (point in points.asReversed()) {
-            if (point.totalMl >= goalMl) streak++ else break
+            if (point.totalMl >= goalForDate(settings, point.date)) streak++ else break
         }
         return streak
     }
 
+    fun missedStreak(points: List<DayTotal>, settings: WaterSettings): Int {
+        var streak = 0
+        for (point in points.asReversed()) {
+            if (point.totalMl < goalForDate(settings, point.date)) streak++ else break
+        }
+        return streak
+    }
+
+    fun timeDistributionToday(context: Context): Triple<Int, Int, Int> {
+        var morning = 0
+        var afternoon = 0
+        var evening = 0
+        todayRecords(context).forEach { record ->
+            val hour = Calendar.getInstance().apply {
+                timeInMillis = record.timestamp
+            }.get(Calendar.HOUR_OF_DAY)
+            when {
+                hour < 12 -> morning += record.amountMl
+                hour < 18 -> afternoon += record.amountMl
+                else -> evening += record.amountMl
+            }
+        }
+        return Triple(morning, afternoon, evening)
+    }
+
+    fun recordedDays(context: Context): Int = getRecords(context).map { it.date }.distinct().size
+
+    fun recordCount(context: Context): Int = getRecords(context).size
+
     fun isGoalReached(context: Context): Boolean {
-        val goal = getSettings(context).dailyGoalMl
+        val goal = todayGoal(context)
         return goal > 0 && todayTotal(context) >= goal
     }
 
@@ -205,5 +259,49 @@ object WaterStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_RECORDS, array.toString())
             .apply()
+    }
+
+    private fun weekdayIndex(date: String): Int {
+        val parsed = runCatching { dateFormat.parse(date) }.getOrNull() ?: return weekdayIndex(Calendar.getInstance())
+        return weekdayIndex(Calendar.getInstance().apply { time = parsed })
+    }
+
+    private fun weekdayIndex(calendar: Calendar): Int {
+        return (calendar.get(Calendar.DAY_OF_WEEK) + 5) % 7
+    }
+
+    private fun cleanupOldDetails(context: Context, records: MutableList<WaterRecord>) {
+        val cutoff = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -180)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val oldGroups = records.filter { it.timestamp < cutoff }.groupBy { it.date }
+        if (oldGroups.isEmpty()) return
+
+        records.removeAll { it.timestamp < cutoff }
+        oldGroups.forEach { (date, oldRecords) ->
+            records.add(
+                WaterRecord(
+                    id = oldRecords.minOf { it.id },
+                    amountMl = oldRecords.sumOf { it.amountMl },
+                    timestamp = middayTimestamp(date),
+                    date = date
+                )
+            )
+        }
+    }
+
+    private fun middayTimestamp(date: String): Long {
+        val parsed = runCatching { dateFormat.parse(date) }.getOrNull() ?: return System.currentTimeMillis()
+        return Calendar.getInstance().apply {
+            time = parsed
+            set(Calendar.HOUR_OF_DAY, 12)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 }

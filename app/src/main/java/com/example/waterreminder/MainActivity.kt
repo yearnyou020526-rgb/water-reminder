@@ -90,12 +90,13 @@ class MainActivity : Activity() {
     private fun renderHome() {
         val settings = WaterStore.getSettings(this)
         val total = WaterStore.todayTotal(this)
-        val progress = if (settings.dailyGoalMl <= 0) 0 else (total * 100 / settings.dailyGoalMl).coerceIn(0, 100)
+        val goal = WaterStore.todayGoal(this)
+        val progress = if (goal <= 0) 0 else (total * 100 / goal).coerceIn(0, 100)
 
         content.addView(title("喝水记录"))
         content.addView(card {
             addView(label("今日饮水", 14, Color.rgb(80, 96, 112)))
-            addView(label("${total} / ${settings.dailyGoalMl} ml", 34, Color.rgb(8, 81, 125), true))
+            addView(label("${total} / ${goal} ml", 34, Color.rgb(8, 81, 125), true))
             addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                 max = 100
                 this.progress = progress
@@ -107,8 +108,9 @@ class MainActivity : Activity() {
         })
 
         content.addView(card {
-            addView(rowOfButtons(100, 200, 300))
-            addView(rowOfButtons(500, -1))
+            val quick = settings.quickAmountsMl.take(4)
+            addView(rowOfButtons(quick.getOrElse(0) { 100 }, quick.getOrElse(1) { 200 }))
+            addView(rowOfButtons(quick.getOrElse(2) { 300 }, quick.getOrElse(3) { 500 }, -1))
             addView(Button(this@MainActivity).apply {
                 text = "撤销上一次"
                 isAllCaps = false
@@ -120,6 +122,13 @@ class MainActivity : Activity() {
                 setMargins(dp(4), dp(6), dp(4), 0)
             })
         })
+
+        val missed = WaterStore.missedStreak(WaterStore.totalsLastDays(this, 8).dropLast(1), settings)
+        if (missed >= 3) {
+            content.addView(card {
+                addView(label("已经连续 ${missed} 天未达标，今天可以早点开始喝水。", 15, Color.rgb(180, 80, 40), true))
+            })
+        }
 
         content.addView(section("今日记录"))
         val records = WaterStore.todayRecords(this)
@@ -175,25 +184,37 @@ class MainActivity : Activity() {
     private fun renderStats() {
         val settings = WaterStore.getSettings(this)
         content.addView(title("统计"))
-        content.addView(statsCard("最近 7 天", WaterStore.totalsLastDays(this, 7), settings.dailyGoalMl))
-        content.addView(statsCard("最近 30 天", WaterStore.totalsLastDays(this, 30), settings.dailyGoalMl))
+        content.addView(distributionCard())
+        content.addView(statsCard("最近 7 天", WaterStore.totalsLastDays(this, 7), settings))
+        content.addView(statsCard("最近 30 天", WaterStore.totalsLastDays(this, 30), settings))
     }
 
-    private fun statsCard(title: String, points: List<DayTotal>, goal: Int): View {
+    private fun distributionCard(): View {
+        val (morning, afternoon, evening) = WaterStore.timeDistributionToday(this)
+        return card {
+            addView(section("今天喝水时间分布"))
+            addView(label("上午：${morning} ml", 15, Color.rgb(50, 64, 78)))
+            addView(label("下午：${afternoon} ml", 15, Color.rgb(50, 64, 78)))
+            addView(label("晚上：${evening} ml", 15, Color.rgb(50, 64, 78)))
+        }
+    }
+
+    private fun statsCard(title: String, points: List<DayTotal>, settings: WaterSettings): View {
         return card {
             addView(section(title))
             val average = if (points.isEmpty()) 0 else points.sumOf { it.totalMl } / points.size
-            val reached = points.count { it.totalMl >= goal }
+            val reached = points.count { it.totalMl >= WaterStore.goalForDate(settings, it.date) }
             val best = WaterStore.bestDay(points)
-            val streak = WaterStore.reachedStreak(points, goal)
+            val streak = WaterStore.reachedStreak(points, settings)
             addView(label("平均每日饮水量：${average} ml", 15, Color.rgb(50, 64, 78)))
             addView(label("达标天数：${reached} 天", 15, Color.rgb(50, 64, 78)))
-            addView(label("达标率：${WaterStore.reachedRate(points, goal)}%", 15, Color.rgb(50, 64, 78)))
+            addView(label("达标率：${WaterStore.reachedRate(points, settings)}%", 15, Color.rgb(50, 64, 78)))
             if (best != null) {
                 addView(label("最高一天：${WaterStore.shortDate(best.date)} ${best.totalMl}ml", 15, Color.rgb(50, 64, 78)))
             }
             addView(label("连续达标：${streak} 天", 15, Color.rgb(50, 64, 78)))
             points.forEach { point ->
+                val goal = WaterStore.goalForDate(settings, point.date)
                 val progress = if (goal <= 0) 0 else (point.totalMl * 100 / goal).coerceIn(0, 100)
                 val row = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -214,13 +235,37 @@ class MainActivity : Activity() {
         val settings = WaterStore.getSettings(this)
         content.addView(title("设置"))
         content.addView(card {
-            addView(settingRow("每日目标", "${settings.dailyGoalMl} ml") {
-                showNumberDialog("每日目标", settings.dailyGoalMl) { saveSettings(settings.copy(dailyGoalMl = it)) }
+            addView(settingRow("默认每日目标", "${settings.dailyGoalMl} ml") {
+                showNumberDialog("默认每日目标", settings.dailyGoalMl) {
+                    saveSettings(settings.copy(dailyGoalMl = it, weekdayGoalsMl = List(7) { _ -> it }))
+                }
             })
+            addView(section("按星期设置目标"))
+            weekdayNames.forEachIndexed { index, name ->
+                addView(settingRow(name, "${settings.weekdayGoalsMl.getOrElse(index) { settings.dailyGoalMl }} ml") {
+                    showNumberDialog("${name}目标", settings.weekdayGoalsMl.getOrElse(index) { settings.dailyGoalMl }) {
+                        val goals = settings.weekdayGoalsMl.toMutableList()
+                        while (goals.size < 7) goals.add(settings.dailyGoalMl)
+                        goals[index] = it
+                        saveSettings(settings.copy(weekdayGoalsMl = goals))
+                    }
+                })
+            }
             addView(settingRow("默认饮水量", "${settings.defaultDrinkMl} ml") {
                 showNumberDialog("默认饮水量", settings.defaultDrinkMl) { saveSettings(settings.copy(defaultDrinkMl = it)) }
             })
             addView(label("小组件右侧按钮会使用默认饮水量。", 13, Color.rgb(96, 108, 120)))
+            addView(section("首页快捷按钮"))
+            settings.quickAmountsMl.take(4).forEachIndexed { index, amount ->
+                addView(settingRow("快捷 ${index + 1}", "${amount} ml") {
+                    showNumberDialog("快捷 ${index + 1}", amount) {
+                        val quick = settings.quickAmountsMl.toMutableList()
+                        while (quick.size < 4) quick.add(listOf(100, 200, 300, 500)[quick.size])
+                        quick[index] = it
+                        saveSettings(settings.copy(quickAmountsMl = quick))
+                    }
+                })
+            }
             addView(section("提醒间隔"))
             listOf(15, 30, 45, 60, 90, 120).chunked(3).forEach { row ->
                 addView(LinearLayout(this@MainActivity).apply {
@@ -267,6 +312,9 @@ class MainActivity : Activity() {
             addView(switchRow("小组件显示水杯", settings.widgetShowCup) { checked ->
                 saveSettings(settings.copy(widgetShowCup = checked))
             })
+            addView(section("数据"))
+            addView(label("已记录 ${WaterStore.recordedDays(this@MainActivity)} 天 / ${WaterStore.recordCount(this@MainActivity)} 条记录", 14, Color.rgb(96, 108, 120)))
+            addView(label("超过 180 天的详细记录会自动整理为每日总量，长期统计仍会保留。", 13, Color.rgb(96, 108, 120)))
         })
     }
 
@@ -370,6 +418,8 @@ class MainActivity : Activity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private val weekdayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
     private enum class Tab(val title: String) {
         Home("首页"),
